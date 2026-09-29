@@ -9,6 +9,7 @@ const OTHER_ASSET = "CDYCX4PEZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 const CAIP2 = "stellar:testnet";
 
 const config = {
+  network: "testnet",
   caip2: CAIP2,
   allowedAssets: [ASSET],
 } as unknown as PayerConfig;
@@ -35,6 +36,16 @@ function searchResponse(resources: unknown[]) {
     status: 200,
     json: async () => ({ resources }),
   } as unknown as Response;
+}
+
+function supportedResponse(networks = [CAIP2]) {
+  return { ok: true, status: 200, json: async () => ({ networks }) } as unknown as Response;
+}
+
+function facilitatorFetch(resources: unknown[]) {
+  return vi.fn(async (url: string) =>
+    url.endsWith("/supported") ? supportedResponse() : searchResponse(resources),
+  );
 }
 
 function stubPayer(): Payer {
@@ -70,9 +81,7 @@ describe("x402_pay_and_call", () => {
         config,
         ledger: ledgerWith(),
         facilitatorUrl: "https://facilitator.test",
-        fetchImpl: vi.fn(async () =>
-          searchResponse([entry("https://seller.test/quote", "1000000")]),
-        ) as never,
+        fetchImpl: facilitatorFetch([entry("https://seller.test/quote", "1000000")]) as never,
       },
       "quote",
       "1000000",
@@ -95,12 +104,10 @@ describe("x402_pay_and_call", () => {
         config,
         ledger: ledgerWith(),
         facilitatorUrl: "https://facilitator.test",
-        fetchImpl: vi.fn(async () =>
-          searchResponse([
+        fetchImpl: facilitatorFetch([
             entry("https://seller.test/dear", "9000000"),
             entry("https://seller.test/less", "5000000"),
-          ]),
-        ) as never,
+          ]) as never,
       },
       "quote",
       "1000000",
@@ -122,9 +129,7 @@ describe("x402_pay_and_call", () => {
         config,
         ledger: ledgerWith(),
         facilitatorUrl: "https://facilitator.test",
-        fetchImpl: vi.fn(async () =>
-          searchResponse([entry("https://seller.test/other", "1", { asset: OTHER_ASSET })]),
-        ) as never,
+        fetchImpl: facilitatorFetch([entry("https://seller.test/other", "1", { asset: OTHER_ASSET })]) as never,
       },
       "quote",
       "1000000",
@@ -142,7 +147,8 @@ describe("x402_pay_and_call", () => {
         config,
         ledger: ledgerWith(),
         facilitatorUrl: "https://facilitator.test",
-        fetchImpl: vi.fn(async () => {
+        fetchImpl: vi.fn(async (url: string) => {
+          if (url.endsWith("/supported")) return supportedResponse();
           throw new Error("ECONNREFUSED");
         }) as never,
       },
@@ -157,7 +163,7 @@ describe("x402_pay_and_call", () => {
 
   it("T-5: checks the session ceiling before searching or paying", async () => {
     const payer = stubPayer();
-    const fetchImpl = vi.fn(async () => searchResponse([entry("https://seller.test/q", "1")]));
+    const fetchImpl = facilitatorFetch([entry("https://seller.test/q", "1")]);
     // Ceiling fully consumed: nothing can be bought, so nothing should be
     // searched for either.
     const ledger = ledgerWith(1_000_000n);
@@ -183,13 +189,11 @@ describe("x402_pay_and_call", () => {
         config,
         ledger: ledgerWith(),
         facilitatorUrl: "https://facilitator.test",
-        fetchImpl: vi.fn(async () =>
-          searchResponse([
+        fetchImpl: facilitatorFetch([
             entry("https://seller.test/dear", "900000"),
             entry("https://seller.test/cheap", "100000"),
             entry("https://seller.test/mid", "500000"),
-          ]),
-        ) as never,
+          ]) as never,
       },
       "quote",
       "1000000",
@@ -210,6 +214,27 @@ describe("x402_pay_and_call", () => {
       ),
     ).rejects.toThrow(/base units/);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses a facilitator that does not advertise the configured network before payment", async () => {
+    const payer = stubPayer();
+    const fetchImpl = vi.fn(async (url: string) =>
+      url.endsWith("/supported")
+        ? supportedResponse(["stellar:pubnet"])
+        : searchResponse([entry("https://seller.test/quote", "1000000")]),
+    );
+
+    await expect(
+      payAndCall(
+        { payer, config, ledger: ledgerWith(), facilitatorUrl: "https://facilitator.test", fetchImpl: fetchImpl as never },
+        "quote",
+        "1000000",
+      ),
+    ).rejects.toThrow(/configured network "testnet" \(stellar:testnet\).*stellar:pubnet.*Nothing was signed/);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("https://facilitator.test/supported");
+    expect(payer.pay).not.toHaveBeenCalled();
   });
 });
 

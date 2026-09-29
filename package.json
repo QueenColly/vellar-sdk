@@ -140,6 +140,7 @@
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^16.0.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "passkey-kit": "^0.16.5",
     "tsup": "^8.5.1",
     "typescript": "^5.9.2",

@@ -228,6 +228,7 @@ export interface SessionKeySignerConfig {
    * to keep a tamper-evident record of who authorized or was denied which payment.
    */
   onSignerAction?: X402SignerActionHook;
+  /**
    * Client-side capability scoping (#224): restrict which resource
    * type (contract) + action (function name) combinations this signer will
    * sign, independent of the on-chain policy. Omit for no scoping (signs
@@ -285,7 +286,7 @@ export function createSessionKeySigner(config: SessionKeySignerConfig): SmartAcc
       const entry = xdr.SorobanAuthorizationEntry.fromXDR(entryXdr, "base64");
       assertEntryAddress(entry, config.address);
       const request = capabilityRequestFor(entry);
-      if (request) assertCapability(capabilities, request);
+      if (request !== undefined) assertCapability(capabilities, request);
       const payload = payloadHashForEntry(entry, networkPassphrase, expirationLedger);
       const signature = keypair.sign(payload);
       setSignatureMap(entry, ed25519SignerKey(rawPk), ed25519Signature(signature), policies);
@@ -377,7 +378,7 @@ export function createPasskeyX402Signer(config: PasskeyX402SignerConfig): SmartA
       const entry = xdr.SorobanAuthorizationEntry.fromXDR(entryXdr, "base64");
       assertEntryAddress(entry, config.address);
       const request = capabilityRequestFor(entry);
-      if (request) assertCapability(capabilities, request);
+      if (request !== undefined) assertCapability(capabilities, request);
       const payload = payloadHashForEntry(entry, networkPassphrase, expirationLedger);
       const assertion = await config.webAuthn.sign(new Uint8Array(payload));
       setSignatureMap(

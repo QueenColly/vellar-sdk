@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 import { sdkSourceAliases } from "./vitest.alias";
 
 // The default suite is HERMETIC: no network, no local stack, no chain.
@@ -13,6 +14,7 @@ export default defineConfig({
   // require a prior `npm run build`. See vitest.alias.ts.
   resolve: { alias: sdkSourceAliases },
   test: {
+    setupFiles: [fileURLToPath(new URL("./contrib/examples/test-browser-context.ts", import.meta.url))],
     exclude: [
       "**/node_modules/**",
       "**/dist/**",

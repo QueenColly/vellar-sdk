@@ -24,6 +24,45 @@ export const DEFAULT_FACILITATOR_URL = "https://vellar-facilitator.onrender.com"
 /** How many catalog entries to consider. More than this is noise for one call. */
 const SEARCH_LIMIT = 10;
 
+const supportedNetworksByFetch = new WeakMap<FetchLike, Map<string, Promise<string[]>>>();
+
+async function assertFacilitatorNetwork(
+  fetchImpl: FetchLike,
+  base: string,
+  config: Pick<PayerConfig, "network" | "caip2">,
+): Promise<void> {
+  let byBase = supportedNetworksByFetch.get(fetchImpl);
+  if (!byBase) {
+    byBase = new Map();
+    supportedNetworksByFetch.set(fetchImpl, byBase);
+  }
+
+  let advertised = byBase.get(base);
+  if (!advertised) {
+    advertised = (async () => {
+      const response = await fetchImpl(new URL("/supported", base).toString());
+      if (!response.ok) throw new Error(`facilitator /supported returned HTTP ${response.status}`);
+      const payload = (await response.json()) as { networks?: unknown };
+      if (!Array.isArray(payload.networks) || payload.networks.some((network) => typeof network !== "string")) {
+        throw new Error("facilitator /supported returned an invalid networks list");
+      }
+      return payload.networks;
+    })();
+    byBase.set(base, advertised);
+    void advertised.catch(() => {
+      if (byBase?.get(base) === advertised) byBase.delete(base);
+    });
+  }
+
+  const networks = await advertised;
+  if (!networks.includes(config.caip2)) {
+    throw new Error(
+      `Facilitator network mismatch: configured network "${config.network}" (${config.caip2}), ` +
+        `but facilitator advertised: ${networks.join(", ") || "(none)"}. Nothing was signed.`,
+    );
+  }
+}
+
 /** One payment option on a catalog entry. */
 interface CatalogAccept {
   scheme?: string;
@@ -173,6 +212,8 @@ export async function payAndCall(
         "cannot be raised by a tool call.",
     );
   }
+
+  await assertFacilitatorNetwork(fetchImpl, base, config);
 
   const url = new URL("/discovery/search", base);
   url.searchParams.set("query", query);

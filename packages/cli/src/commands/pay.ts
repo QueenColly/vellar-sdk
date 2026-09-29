@@ -21,6 +21,28 @@ const NETWORK_IDS: Record<string, Network> = {
   mainnet: "stellar:pubnet",
 };
 
+const DEFAULT_FACILITATOR_URL = "https://vellar-facilitator.onrender.com";
+
+export async function assertFacilitatorNetwork(
+  fetchImpl: typeof fetch,
+  network: string,
+): Promise<void> {
+  const configured = NETWORK_IDS[network];
+  const facilitator = process.env.VELLAR_X402_FACILITATOR_URL ?? DEFAULT_FACILITATOR_URL;
+  const response = await fetchImpl(new URL("/supported", facilitator));
+  if (!response.ok) throw new Error(`facilitator /supported returned HTTP ${response.status}`);
+  const payload = (await response.json()) as { networks?: unknown };
+  if (!Array.isArray(payload.networks) || payload.networks.some((item) => typeof item !== "string")) {
+    throw new Error("facilitator /supported returned an invalid networks list");
+  }
+  if (!payload.networks.includes(configured)) {
+    throw new Error(
+      `Facilitator network mismatch: configured network "${network}" (${configured}), ` +
+        `but facilitator advertised: ${payload.networks.join(", ") || "(none)"}. Nothing was signed.`,
+    );
+  }
+}
+
 const ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /**
@@ -200,6 +222,8 @@ export function makePayCommand(): Command {
             process.exit(1);
             return;
           }
+
+          await assertFacilitatorNetwork(fetch, opts.network);
 
           // 3. Build and sign. The scheme assembles the SEP-41 transfer, signs
           //    the payer's auth entry, and sets expiry from maxTimeoutSeconds.

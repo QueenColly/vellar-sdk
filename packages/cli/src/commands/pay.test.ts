@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { makePayCommand, safeJsonParse, selectRequirement } from "./pay.js";
+import { assertFacilitatorNetwork, makePayCommand, safeJsonParse, selectRequirement } from "./pay.js";
 import type { Requirement } from "./quote.js";
 
 function optionFor(flags: string) {
@@ -31,6 +31,18 @@ afterEach(() => {
 });
 
 describe("pay command", () => {
+  it("refuses a facilitator network mismatch with both networks named", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      expect(String(url)).toBe("https://vellar-facilitator.onrender.com/supported");
+      return new Response(JSON.stringify({ networks: ["stellar:pubnet"] }), { status: 200 });
+    });
+
+    await expect(assertFacilitatorNetwork(fetchImpl as typeof fetch, "testnet")).rejects.toThrow(
+      /configured network "testnet" \(stellar:testnet\).*stellar:pubnet.*Nothing was signed/,
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("is named 'pay' and takes one required url argument", () => {
     const cmd = makePayCommand();
     expect(cmd.name()).toBe("pay");
